@@ -5,6 +5,7 @@ using dotenv.net;
 using InteliView.DataAccess.Data;
 using IntelliView.API.Infrastructure;
 using IntelliView.API.Services;
+using IntelliView.DataAccess.Middlewares;
 using IntelliView.DataAccess.Repository.IRepository;
 using IntelliView.DataAccess.Repository.Repos;
 using IntelliView.DataAccess.Services;
@@ -32,23 +33,87 @@ var builder = WebApplication.CreateBuilder(args);
 // for database sql server
 
 builder.Configuration.AddEnvironmentVariables();
-//builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
-//    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Add a default appsettings if not present (for security, better to use environment variables)
+if (string.IsNullOrEmpty(builder.Configuration["JWT:Key"]))
+{
+    // Try different environment variable formats
+    var jwtKey = Environment.GetEnvironmentVariable("JWT__Key");
+
+    if (string.IsNullOrEmpty(jwtKey))
+    {
+        jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
+    }
+
+    // Set configuration value if found in environment
+    if (!string.IsNullOrEmpty(jwtKey))
+    {
+        builder.Configuration["JWT:Key"] = jwtKey;
+    }
+}
+
+// Explicitly set other JWT settings if needed
+if (string.IsNullOrEmpty(builder.Configuration["JWT:Issuer"]))
+{
+    var jwtIssuer = Environment.GetEnvironmentVariable("JWT__Issuer") ??
+                    Environment.GetEnvironmentVariable("JWT_ISSUER");
+
+    if (!string.IsNullOrEmpty(jwtIssuer))
+    {
+        builder.Configuration["JWT:Issuer"] = jwtIssuer;
+    }
+}
+
+if (string.IsNullOrEmpty(builder.Configuration["JWT:Audience"]))
+{
+    var jwtAudience = Environment.GetEnvironmentVariable("JWT__Audience") ??
+                       Environment.GetEnvironmentVariable("JWT_AUDIENCE");
+
+    if (!string.IsNullOrEmpty(jwtAudience))
+    {
+        builder.Configuration["JWT:Audience"] = jwtAudience;
+    }
+}
+
+if (string.IsNullOrEmpty(builder.Configuration["JWT:DurationInMinutes"]))
+{
+    var jwtDuration = Environment.GetEnvironmentVariable("JWT__DurationInMinutes") ??
+                       Environment.GetEnvironmentVariable("JWT_DURATION_MINUTES");
+
+    if (!string.IsNullOrEmpty(jwtDuration))
+    {
+        builder.Configuration["JWT:DurationInMinutes"] = jwtDuration;
+    }
+}
+
+// Database connection
 builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
-//options.UseSqlServer(builder.Configuration.GetConnectionString("MonsterASPConnection")));
-options.UseSqlServer(builder.Configuration.GetConnectionString("MonsterASPConnection_new")));
+{
+    var connectionString = builder.Configuration.GetConnectionString("MonsterASPConnection_new");
 
+    // If connection string is not found in configuration, try environment variable
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__MonsterASPConnection_new");
 
-// for database in memory
+        // If still null, try fallback env variable
+        if (string.IsNullOrEmpty(connectionString))
+        {
+            connectionString = Environment.GetEnvironmentVariable("CONNECTION_STRING");
+        }
+    }
 
-//builder.Services.AddDbContextFactory<ApplicationDbContext>(options =>
-//{
-//    // Use In-Memory Database
-//    options.UseInMemoryDatabase("InMemoryDatabase");
+    if (!string.IsNullOrEmpty(connectionString))
+    {
+        options.UseSqlServer(connectionString);
+    }
+    else
+    {
+        throw new InvalidOperationException("Database connection string is not configured. Please set the connection string in environment variables.");
+    }
+});
 
-//    // If you still want to seed data, you can do it here
-//    // options.UseInMemoryDatabase("InMemoryDatabaseName").UseSeedData();
-//});
+// ... existing code ...
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
@@ -69,7 +134,32 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
     options.Password.RequiredLength = 8;
 }).AddEntityFrameworkStores<ApplicationDbContext>().AddDefaultTokenProviders();
-builder.Services.Configure<JWT>(builder.Configuration.GetSection("JWT"));
+
+// Configure JWT via options pattern to ensure it has values
+builder.Services.Configure<JWT>(options =>
+{
+    // Only set if configuration values exist
+    if (!string.IsNullOrEmpty(builder.Configuration["JWT:Key"]))
+    {
+        options.Key = builder.Configuration["JWT:Key"];
+    }
+
+    if (!string.IsNullOrEmpty(builder.Configuration["JWT:Issuer"]))
+    {
+        options.Issuer = builder.Configuration["JWT:Issuer"];
+    }
+
+    if (!string.IsNullOrEmpty(builder.Configuration["JWT:Audience"]))
+    {
+        options.Audience = builder.Configuration["JWT:Audience"];
+    }
+
+    if (!string.IsNullOrEmpty(builder.Configuration["JWT:DurationInMinutes"]))
+    {
+        options.DurationInMinutes = int.Parse(builder.Configuration["JWT:DurationInMinutes"]);
+    }
+});
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -77,6 +167,13 @@ builder.Services.AddAuthentication(options =>
 })
     .AddJwtBearer(o =>
     {
+        // Ensure we have a key before trying to configure
+        var jwtKey = builder.Configuration["JWT:Key"];
+        if (string.IsNullOrEmpty(jwtKey))
+        {
+            throw new InvalidOperationException("JWT:Key is not configured. Please set JWT__Key environment variable.");
+        }
+
         o.RequireHttpsMetadata = false;
         o.SaveToken = false;
         o.TokenValidationParameters = new TokenValidationParameters
@@ -87,23 +184,32 @@ builder.Services.AddAuthentication(options =>
             ValidateLifetime = true,
             ValidIssuer = builder.Configuration["JWT:Issuer"],
             ValidAudience = builder.Configuration["JWT:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["JWT:Key"]!)),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero
         };
     });
+
+// Configure logging with appropriate log levels
 builder.Services.AddLogging(loggingBuilder =>
 {
-    // Set a default filter for all categories to Warning
+    loggingBuilder.ClearProviders();
+    loggingBuilder.AddConsole();
+    loggingBuilder.AddDebug();
+
+    // Set default log level to Information to capture all endpoint logs
+    loggingBuilder.SetMinimumLevel(LogLevel.Information);
+
+    // Filter out noisy framework logs
     loggingBuilder.AddFilter("Microsoft", LogLevel.Warning)
                   .AddFilter("System", LogLevel.Warning)
-                  .AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+                  .AddFilter("Microsoft.AspNetCore", LogLevel.Warning)
+                  .AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 
-    // Specific configuration for Entity Framework Core to emphasize it's already set to Warning
-    loggingBuilder.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
-
-    // If you have other categories you want to adjust, you can do so here
-    // Example: loggingBuilder.AddFilter("YourApplicationNamespace", LogLevel.Information);
+    // Keep IntelliView logs at Information level to see endpoint logging
+    loggingBuilder.AddFilter("IntelliView", LogLevel.Information);
 });
+
+// ... existing code ...
 
 builder.Services.AddHttpClient<IAIModelApiService, AIModelApiClient>();
 builder.Services.AddHttpClient<IAiSearchService, AiSearchService>();
@@ -116,7 +222,7 @@ builder.Services.AddScoped<IJwtToken, JwtToken>();
 builder.Services.AddScoped<IAvatarService, AvatarService>();
 builder.Services.AddAutoMapper(typeof(Program).Assembly, typeof(IAuthService).Assembly);
 builder.Services.AddControllers().AddNewtonsoftJson();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -131,8 +237,6 @@ builder.Services.AddSwaggerGen(options =>
     options.OperationFilter<SecurityRequirementsOperationFilter>();
 });
 
-
-
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("UserOrCompany", policy =>
@@ -141,8 +245,6 @@ builder.Services.AddAuthorization(options =>
     });
 });
 
-//builder.Services.AddIdentityApiEndpoints<IdentityUser>()
-//.AddEntityFrameworkStores<ApplicationDbContext>();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -155,11 +257,16 @@ if (app.Environment.IsDevelopment())
     // Only use HTTPS redirection in development where we have the dev certificate
     app.UseHttpsRedirection();
 }
-//app.MapIdentityApi<IdentityUser>();
+else
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
 app.UseCors("CorsPolicy");
 
-//app.UseExceptionHandler();
-//app.UseMiddleware<HashIdMiddleware>();
+// Add request logging middleware to log ALL endpoints
+app.UseRequestLogging();
 
 app.UseAuthentication();
 app.UseAuthorization();

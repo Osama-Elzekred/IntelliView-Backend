@@ -51,9 +51,6 @@ namespace IntelliView.API.Controllers
             return Result<string>.Failure(TestErrors.AlreadyRegistered);
         }
 
-
-
-
         [HttpPost("cloudinary")]
         public async Task<IActionResult> TestCloudinary(IFormFile formFile)
         {
@@ -67,7 +64,14 @@ namespace IntelliView.API.Controllers
         {
             try
             {
-                Cloudinary cloudinary = new Cloudinary(Configuration.GetSection("CLOUDINARY_URL").Value);
+                // Use configuration for Cloudinary URL instead of hardcoding
+                var cloudinaryUrl = Configuration["CLOUDINARY_URL"];
+                if (string.IsNullOrEmpty(cloudinaryUrl))
+                {
+                    return false;
+                }
+
+                Cloudinary cloudinary = new Cloudinary(cloudinaryUrl);
                 cloudinary.Api.Secure = true;
                 string publicId = url.Substring(url.LastIndexOf("/") + 1, url.LastIndexOf(".") - url.LastIndexOf("/") - 1);
 
@@ -102,9 +106,6 @@ namespace IntelliView.API.Controllers
         [HttpGet("GeminiAI")]
         public async Task<IActionResult> GeminiAI(string prompt)
         {
-            // Construct the prompt based on the category and level
-            //string prompt = $"Generate a {numberOfQuestions} text interview question with model answers in the {category} category and {level} level. Format: {{Question}}; {{Answer}}";
-
             // Call the AI service with the constructed prompt
             var result = await _aiBasedSearchService.GeminiAiApi(prompt);
 
@@ -113,7 +114,6 @@ namespace IntelliView.API.Controllers
 
             // Parse the formatted response to extract question and answer
             var response = ParseGeminiApiResponse(formattedResponse);
-
 
             return Ok(response);
         }
@@ -163,10 +163,6 @@ namespace IntelliView.API.Controllers
         }
 
         # endregion
-
-
-
-
 
         [HttpPost("AddMultibleDataForm")]
         public Task<IActionResult> AddMultibleDataForm(MultibleFormDataDTO multibleFormDataDTO)
@@ -239,12 +235,6 @@ namespace IntelliView.API.Controllers
             var result = await _aiModelApiService.FetchVideoAnalysisData(videoLink);
             return Ok(result);
         }
-        //[HttpPost("revciveData")]
-        //public Task<IActionResult> RevciveData(string data)
-        //{
-        //    Console.WriteLine(data);
-        //    return Task.FromResult<IActionResult>(Ok(data));
-        //}
 
         // Test sending email
         [HttpPost("send-email")]
@@ -260,6 +250,5 @@ namespace IntelliView.API.Controllers
                 return StatusCode(StatusCodes.Status500InternalServerError, $"Internal server error: {ex.Message}");
             }
         }
-
     }
 }
