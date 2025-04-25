@@ -151,11 +151,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
     app.UseDeveloperExceptionPage();
+
+    // Only use HTTPS redirection in development where we have the dev certificate
+    app.UseHttpsRedirection();
 }
 //app.MapIdentityApi<IdentityUser>();
 app.UseCors("CorsPolicy");
-app.UseHttpsRedirection();
-
 
 //app.UseExceptionHandler();
 //app.UseMiddleware<HashIdMiddleware>();

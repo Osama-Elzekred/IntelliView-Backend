@@ -42,13 +42,12 @@ RUN adduser --disabled-password --gecos "" appuser && \
 # Copy published files from build stage
 COPY --from=build /app/publish .
 
-# Set environment variables
+# Set environment variables - IMPORTANT: Using HTTP only
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ASPNETCORE_URLS="http://+:8080;https://+:8081"
+ENV ASPNETCORE_URLS="http://+:8080"
 
-# Expose ports
+# Expose port
 EXPOSE 8080
-EXPOSE 8081
 
 # Set user for running the application
 USER appuser
