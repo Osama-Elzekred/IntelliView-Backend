@@ -42,12 +42,8 @@ RUN adduser --disabled-password --gecos "" appuser && \
 # Copy published files from build stage
 COPY --from=build /app/publish .
 
-# Copy configuration files
-COPY --from=build /src/IntelliView.API/appsettings.json .
-COPY --from=build /src/IntelliView.API/.env .
-
 # Set environment variables
-ENV ASPNETCORE_ENVIRONMENT=Development
+ENV ASPNETCORE_ENVIRONMENT=Production
 ENV ASPNETCORE_URLS="http://+:8080;https://+:8081"
 
 # Expose ports
